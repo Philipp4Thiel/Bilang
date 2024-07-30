@@ -1,0 +1,4 @@
+let x: int = 1;
+let y: int = 2;
+let f: int -> int -> int = (\x,y -> x + y);
+print (f x y);

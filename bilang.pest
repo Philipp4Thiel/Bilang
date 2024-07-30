@@ -1,0 +1,35 @@
+program = { statement+ }
+
+type0  = { ("(" ~ type0 ~ ")") | (type1 ~ "->" ~ type0) | type1 }
+type1 = { "int" }
+
+statement = { (declaration | printStatement) ~ ";" }
+
+declaration    = { "let " ~ IDENTIFIER ~ ":" ~ type0 ~ "=" ~ expression }
+printStatement = { "print" ~ expression }
+
+expression = {
+    application
+  | binary
+  | unary
+  | grouping
+  | IDENTIFIER
+  | lambda
+  | application
+  | conditional
+  | literal
+}
+
+conditional = { "(" ~ expression ~ "?" ~ expression ~ ":" ~ expression ~ ")" }
+binary      = { "(" ~ expression ~ operator ~ expression ~ ")" }
+unary       = { ("-" | "!") ~ expression }
+grouping    = { "(" ~ expression ~ ")" }
+lambda      = { "\\" ~ IDENTIFIER ~ ("," ~ IDENTIFIER)* ~ "->" ~ expression }
+application = { "(" ~ expression ~ expression+ ~ ")" }
+literal     = { NUMBER }
+
+operator = { "+" | "-" | "*" | "/" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" }
+
+NUMBER     =  { ASCII_DIGIT+ }
+IDENTIFIER =  { ASCII_ALPHA }
+WHITESPACE = _{ " " | "\n" | "\t" }
