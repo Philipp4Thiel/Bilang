@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+
 use from_pest::{ConversionError, Void};
 use pest::iterators::Pair;
+
+use Expression::*;
 
 use super::parser::Rule;
 
@@ -87,13 +91,11 @@ pub fn get_expression_ast(pair: Pair<Rule>) -> Result<Expression, ConversionErro
     let inner_pair = pair.into_inner().next().unwrap();
 
     match inner_pair.as_rule() {
-        Rule::literal => Ok(Expression::IntLiteral(IntLiteral {
-            value: span_to_i32(inner_pair.as_span()),
-        })),
-        Rule::binary => Ok(Expression::BinaryOp(
+        Rule::literal => Ok(IntLiteral(span_to_i32(inner_pair.as_span()))),
+        Rule::binary => Ok(BinaryOp(
             Box::new(get_binary_expression_ast(inner_pair)?)
         )),
-        Rule::lambda => Ok(Expression::Lambda(
+        Rule::lambda => Ok(Lambda(
             Box::new(get_lambda_expression_ast(inner_pair)?)
         )),
         Rule::IDENTIFIER => Ok(Expression::Identifier(
@@ -210,14 +212,9 @@ pub struct Declaration {
     pub expression: Expression,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Identifier {
     pub name: String,
-}
-
-#[derive(Debug)]
-pub struct IntLiteral {
-    pub value: i32,
 }
 
 #[derive(Debug)]
@@ -226,7 +223,7 @@ pub enum Type {
     Func(Box<Type>, Box<Type>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Application(Box<Application>),
     BinaryOp(Box<BinaryExpression>),
@@ -234,36 +231,36 @@ pub enum Expression {
     Identifier(Box<Identifier>),
     Lambda(Box<LambdaExpression>),
     Conditional(Box<ConditionalExpression>),
-    IntLiteral(IntLiteral),
+    IntLiteral(i32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConditionalExpression {
     pub condition: Box<Expression>,
     pub then_branch: Box<Expression>,
     pub else_branch: Box<Expression>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Application {
     pub function: Box<Expression>,
     pub arguments: Vec<Box<Expression>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LambdaExpression {
     pub parameter: Vec<Identifier>,
     pub body: Box<Expression>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryExpression {
     pub left: Box<Expression>,
     pub operator: BinaryOperator,
     pub right: Box<Expression>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinaryOperator {
     Add,
     Sub,
@@ -279,8 +276,112 @@ pub enum BinaryOperator {
     Or,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryExpression {
     Neg(Box<Expression>),
     Not(Box<Expression>),
+}
+
+impl Program {
+    pub fn eval(&self) {
+        let mut state: HashMap<String, Expression> = HashMap::new();
+
+        for statement in &self.statements {
+            match statement {
+                Statement::Declaration(declaration) => {
+                    let value = declaration.expression.eval(&state);
+                    state.insert(declaration.identifier.name.clone(), value);
+                }
+                Statement::Print(print_statement) => {
+                    let value = print_statement.expression.eval(&state);
+                    println!("{}", value.as_str());
+                }
+            }
+        }
+    }
+}
+
+impl Expression {
+    fn eval(&self, state: &HashMap<String, Expression>) -> Expression {
+        match self {
+            IntLiteral(_) | Lambda(_) => self.clone(), // TODO capture variables in lambda
+            Identifier(identifier) => {
+                state.get(&identifier.name).unwrap_or(self).clone()
+            }
+            BinaryOp(bin_exp) => {
+                let lhs = bin_exp.left.eval(state);
+                let rhs = bin_exp.right.eval(state);
+                match (&lhs, &rhs) {
+                    (IntLiteral(a), IntLiteral(b)) =>
+                        IntLiteral(bin_exp.operator.eval(*a, *b)),
+                    _ => BinaryOp(Box::new(BinaryExpression {
+                        left: Box::new(lhs),
+                        operator: bin_exp.operator.clone(),
+                        right: Box::new(rhs),
+                    })),
+                }
+            },
+            Application(app) => {
+                let function = app.function.eval(state);
+                match function {
+                    Lambda(lambda) => {
+                        let mut new_state = state.clone();
+                        for (param, arg) in lambda.parameter.iter().zip(app.arguments.iter()) {
+                            new_state.insert(param.name.clone(), arg.eval(state));
+                        }
+                        lambda.body.eval(&new_state)
+                    }
+                    _ => panic!("Expected lambda, got {:?}", function.as_str()),
+                }
+            }
+            x => todo!("eval: {:?}", x),
+        }
+    }
+
+    fn as_str(&self) -> String {
+        match self {
+            IntLiteral(literal) => literal.to_string(),
+            Expression::Identifier(identifier) => identifier.name.clone(),
+            Expression::BinaryOp(binop) =>{
+                format!("({} {} {})", binop.left.as_str(), match binop.operator {
+                    BinaryOperator::Add => "+",
+                    BinaryOperator::Sub => "-",
+                    BinaryOperator::Mul => "*",
+                    BinaryOperator::Div => "/",
+                    BinaryOperator::Eq => "==",
+                    BinaryOperator::Neq => "!=",
+                    BinaryOperator::Lt => "<",
+                    BinaryOperator::Gt => ">",
+                    BinaryOperator::Le => "<=",
+                    BinaryOperator::Ge => ">=",
+                    BinaryOperator::And => "&&",
+                    BinaryOperator::Or => "||",
+                }, binop.right.as_str())
+            },
+            Lambda(lambda) => {
+                let params = lambda.parameter.iter().map(|param| param.name.clone()).collect::<Vec<String>>().join(", ");
+                format!("(\\{} -> {})", params, lambda.body.as_str())
+            },
+            x => todo!("as_str: {:?}", x),
+        }
+    }
+}
+
+impl BinaryOperator {
+    fn eval(&self, a: i32, b: i32) -> i32 {
+        match self {
+            BinaryOperator::Add => a + b,
+            BinaryOperator::Sub => a - b,
+            BinaryOperator::Mul => a * b,
+            BinaryOperator::Div => a / b,
+            BinaryOperator::Eq => (a == b) as i32,
+            BinaryOperator::Neq => (a != b) as i32,
+            BinaryOperator::Lt => (a < b) as i32,
+            BinaryOperator::Gt => (a > b) as i32,
+            BinaryOperator::Le => (a <= b) as i32,
+            BinaryOperator::Ge => (a >= b) as i32,
+            BinaryOperator::And => (a != 0 && b != 0) as i32,
+            BinaryOperator::Or => (a != 0 || b != 0) as i32,
+        }
+    }
 }
