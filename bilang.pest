@@ -30,6 +30,6 @@ literal     = { NUMBER }
 
 operator = { "+" | "-" | "*" | "/" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" }
 
-NUMBER     =  { ASCII_DIGIT+ }
-IDENTIFIER =  { ASCII_ALPHA }
+NUMBER     =  @{ ASCII_DIGIT+ }
+IDENTIFIER =  @{ ASCII_ALPHA }
 WHITESPACE = _{ " " | "\n" | "\t" }

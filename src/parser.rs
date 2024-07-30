@@ -13,11 +13,10 @@ pub fn parse_file(file_path: &str) {
     let mut parsed_file = BilangParser::parse(Rule::program, &source)
         .expect("unsuccessful parse");
 
-    let ast = ast::get_ast(&mut parsed_file).expect("parsing error");
+    let ast = ast::get_program_ast(parsed_file.next().unwrap()).expect("parsing error");
 
 
     /* TODO:
-        - fix parsing to actually work
         - actually evaluate the AST
         - because i already know closures will be a mess:
             - ignore captured variables of closures until later -.-
