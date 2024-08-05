@@ -104,7 +104,14 @@ pub fn get_expression_ast(pair: Pair<Rule>) -> Result<Expression, ConversionErro
         Rule::application => Ok(Expression::Application(
             Box::new(get_application_ast(inner_pair)?)
         )),
-        x => todo!("unexpected rule: {:?}", x),
+        Rule::grouping => {
+            let exp = inner_pair.into_inner().next().unwrap();
+            get_expression_ast(exp)
+        }
+        x => {
+            dbg!(inner_pair);
+            todo!("unexpected rule: {:?}", x)
+        }
     }
 }
 
@@ -320,7 +327,7 @@ impl Expression {
                         right: Box::new(rhs),
                     })),
                 }
-            },
+            }
             Application(app) => {
                 let function = app.function.eval(state);
                 match function {
@@ -331,7 +338,7 @@ impl Expression {
                         }
                         lambda.body.eval(&new_state)
                     }
-                    _ => panic!("Expected lambda, got {:?}", function.as_str()),
+                    x => panic!("Expected lambda, got {:?}", x.as_str()),
                 }
             }
             x => todo!("eval: {:?}", x),
@@ -342,7 +349,7 @@ impl Expression {
         match self {
             IntLiteral(literal) => literal.to_string(),
             Expression::Identifier(identifier) => identifier.name.clone(),
-            Expression::BinaryOp(binop) =>{
+            BinaryOp(binop) => {
                 format!("({} {} {})", binop.left.as_str(), match binop.operator {
                     BinaryOperator::Add => "+",
                     BinaryOperator::Sub => "-",
@@ -357,11 +364,11 @@ impl Expression {
                     BinaryOperator::And => "&&",
                     BinaryOperator::Or => "||",
                 }, binop.right.as_str())
-            },
+            }
             Lambda(lambda) => {
                 let params = lambda.parameter.iter().map(|param| param.name.clone()).collect::<Vec<String>>().join(", ");
                 format!("(\\{} -> {})", params, lambda.body.as_str())
-            },
+            }
             x => todo!("as_str: {:?}", x),
         }
     }
