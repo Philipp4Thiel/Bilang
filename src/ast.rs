@@ -89,20 +89,28 @@ pub fn get_type0_ast(pair: Pair<Rule>) -> Result<Type, ConversionError<Void>> {
 pub fn get_expression_ast(pair: Pair<Rule>) -> Result<Expression, ConversionError<Void>> {
     assert_eq!(pair.as_rule(), Rule::expression);
     let inner_pair = pair.into_inner().next().unwrap();
+    let loc = Some(Location {
+        line: inner_pair.as_span().start_pos().line_col().0,
+        char: inner_pair.as_span().start_pos().line_col().1,
+    });
 
     match inner_pair.as_rule() {
-        Rule::literal => Ok(IntLiteral(span_to_i32(inner_pair.as_span()))),
+        Rule::literal => Ok(IntLiteral(loc, span_to_i32(inner_pair.as_span()))),
         Rule::binary => Ok(BinaryOp(
-            Box::new(get_binary_expression_ast(inner_pair)?)
+            loc,
+            Box::new(get_binary_expression_ast(inner_pair)?),
         )),
         Rule::lambda => Ok(Lambda(
-            Box::new(get_lambda_expression_ast(inner_pair)?)
+            loc,
+            Box::new(get_lambda_expression_ast(inner_pair)?),
         )),
         Rule::IDENTIFIER => Ok(Expression::Identifier(
-            Box::new(get_identifier_ast(inner_pair)?)
+            loc,
+            Box::new(get_identifier_ast(inner_pair)?),
         )),
         Rule::application => Ok(Expression::Application(
-            Box::new(get_application_ast(inner_pair)?)
+            loc,
+            Box::new(get_application_ast(inner_pair)?),
         )),
         Rule::grouping => {
             let exp = inner_pair.into_inner().next().unwrap();
@@ -231,14 +239,20 @@ pub enum Type {
 }
 
 #[derive(Debug, Clone)]
+pub struct Location {
+    pub line: usize,
+    pub char: usize,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
-    Application(Box<Application>),
-    BinaryOp(Box<BinaryExpression>),
-    UnaryOp(Box<UnaryExpression>),
-    Identifier(Box<Identifier>),
-    Lambda(Box<LambdaExpression>),
-    Conditional(Box<ConditionalExpression>),
-    IntLiteral(i32),
+    Application(Option<Location>, Box<Application>),
+    BinaryOp(Option<Location>, Box<BinaryExpression>),
+    UnaryOp(Option<Location>, Box<UnaryExpression>),
+    Identifier(Option<Location>, Box<Identifier>),
+    Lambda(Option<Location>, Box<LambdaExpression>),
+    Conditional(Option<Location>, Box<ConditionalExpression>),
+    IntLiteral(Option<Location>, i32),
 }
 
 #[derive(Debug, Clone)]
@@ -311,34 +325,35 @@ impl Program {
 impl Expression {
     fn eval(&self, state: &HashMap<String, Expression>) -> Expression {
         match self {
-            IntLiteral(_) | Lambda(_) => self.clone(), // TODO capture variables in lambda
-            Identifier(identifier) => {
+            IntLiteral(_, _) | Lambda(_, _) => self.clone(), // TODO capture variables in lambda
+            Identifier(_, identifier) => {
                 state.get(&identifier.name).unwrap_or(self).clone()
             }
-            BinaryOp(bin_exp) => {
+            BinaryOp(_, bin_exp) => {
                 let lhs = bin_exp.left.eval(state);
                 let rhs = bin_exp.right.eval(state);
                 match (&lhs, &rhs) {
-                    (IntLiteral(a), IntLiteral(b)) =>
-                        IntLiteral(bin_exp.operator.eval(*a, *b)),
-                    _ => BinaryOp(Box::new(BinaryExpression {
+                    (IntLiteral(_, a), IntLiteral(_, b)) =>
+                        IntLiteral(None, bin_exp.operator.eval(*a, *b)),
+                    _ => BinaryOp(None, Box::new(BinaryExpression {
                         left: Box::new(lhs),
                         operator: bin_exp.operator.clone(),
                         right: Box::new(rhs),
                     })),
                 }
             }
-            Application(app) => {
+            Application(loc, app) => {
                 let function = app.function.eval(state);
-                match function {
-                    Lambda(lambda) => {
+                match (loc, &function) {
+                    (_, Lambda(_, lambda)) => {
                         let mut new_state = state.clone();
                         for (param, arg) in lambda.parameter.iter().zip(app.arguments.iter()) {
                             new_state.insert(param.name.clone(), arg.eval(state));
                         }
                         lambda.body.eval(&new_state)
                     }
-                    x => panic!("Expected lambda, got {:?}", x.as_str()),
+                    (None, _) => panic!("Expected lambda, got {:?}", function.as_str()),
+                    (Some(loc), _) => panic!("Expected lambda, got {:?} at {:?}", function.as_str(), loc),
                 }
             }
             x => todo!("eval: {:?}", x),
@@ -347,9 +362,9 @@ impl Expression {
 
     fn as_str(&self) -> String {
         match self {
-            IntLiteral(literal) => literal.to_string(),
-            Expression::Identifier(identifier) => identifier.name.clone(),
-            BinaryOp(binop) => {
+            IntLiteral(_, literal) => literal.to_string(),
+            Expression::Identifier(_, identifier) => identifier.name.clone(),
+            BinaryOp(_, binop) => {
                 format!("({} {} {})", binop.left.as_str(), match binop.operator {
                     BinaryOperator::Add => "+",
                     BinaryOperator::Sub => "-",
@@ -365,7 +380,7 @@ impl Expression {
                     BinaryOperator::Or => "||",
                 }, binop.right.as_str())
             }
-            Lambda(lambda) => {
+            Lambda(_, lambda) => {
                 let params = lambda.parameter.iter().map(|param| param.name.clone()).collect::<Vec<String>>().join(", ");
                 format!("(\\{} -> {})", params, lambda.body.as_str())
             }
